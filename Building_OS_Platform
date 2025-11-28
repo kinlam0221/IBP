@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智慧城市园区 - 建筑信息交互平台 (BIM OS)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Tween.js for animations -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0b1120; font-family: 'Inter', sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 0; }
+        
+        /* Sci-Fi Glassmorphism */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            color: #f1f5f9;
+        }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 2px; }
+
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%;
+            background: #ef4444; border: 2px solid white; cursor: pointer; margin-top: -5px;
+            box-shadow: 0 0 10px #ef4444;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px; cursor: pointer; background: #334155; border-radius: 2px;
+        }
+
+        .legend-box { width: 8px; height: 8px; border: 1px solid; display: inline-block; margin-right: 4px; }
+    </style>
+</head>
+<body>
+
+    <!-- 3D Container -->
+    <div id="canvas-container"></div>
+
+    <!-- Left Sidebar -->
+    <div class="absolute top-4 left-4 w-80 flex flex-col gap-3 z-10 pointer-events-none select-none">
+        <!-- Header -->
+        <div class="glass-panel p-4 rounded-lg pointer-events-auto">
+            <h1 class="text-lg font-bold text-blue-400 flex items-center gap-2 tracking-wider">
+                <div class="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_#60a5fa] animate-pulse"></div>
+                BIM·OS <span class="text-xs text-gray-400 font-normal ml-auto">V7.2 Stable</span>
+            </h1>
+            
+            <!-- Selection Context -->
+            <div id="context-panel" class="mt-3">
+                <div id="default-hint" class="text-xs text-gray-400 leading-relaxed">
+                    <span class="text-blue-300 font-bold">操作指南：</span><br>
+                    • <span class="text-white">点击房间</span>：显示详情与高亮<br>
+                    • <span class="text-white">点击楼层</span>：实体抽出查看<br>
+                    • <span class="text-white">线框视图</span>：查看功能分区
+                </div>
+
+                <!-- Detail View -->
+                <div id="selection-details" class="hidden animate-fade-in">
+                    <div class="flex justify-between items-center border-b border-white/10 pb-2 mb-2">
+                        <span id="sel-title" class="font-bold text-white text-sm">F1 会议室</span>
+                        <button id="drawer-btn" onclick="toggleDrawer()" class="text-[10px] bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-white transition shadow-lg border border-blue-400/50">
+                            抽出查看
+                        </button>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-y-2 gap-x-2 text-xs mb-3">
+                        <span class="text-gray-400">功能区域</span> <span id="sel-func" class="text-right text-blue-200">办公</span>
+                        <span class="text-gray-400">环境温度</span> <span id="sel-temp" class="text-right font-mono text-yellow-300">24.5°C</span>
+                        <span class="text-gray-400">实时人数</span> <span id="sel-ppl" class="text-right font-mono text-red-500 font-bold">0</span>
+                        <span class="text-gray-400">舒适度</span> <span id="sel-pmv" class="text-right text-green-400">优</span>
+                    </div>
+
+                    <!-- Energy Breakdown -->
+                    <div class="bg-black/40 p-2 rounded border border-white/10">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-[10px] text-gray-300 font-bold">能耗分项 (kW)</span>
+                            <span id="sel-energy-total" class="text-[10px] text-yellow-400 font-mono">0.0</span>
+                        </div>
+                        <div class="space-y-1 text-[9px]">
+                            <div class="flex justify-between border-b border-white/5 pb-0.5"><span class="text-blue-300">❄️ 制冷 (HVAC)</span><span id="e-cool" class="font-mono">0</span></div>
+                            <div class="flex justify-between border-b border-white/5 pb-0.5"><span class="text-red-300">🔥 供暖 (Heat)</span><span id="e-heat" class="font-mono">0</span></div>
+                            <div class="flex justify-between border-b border-white/5 pb-0.5"><span class="text-yellow-200">💡 照明 (Light)</span><span id="e-light" class="font-mono">0</span></div>
+                            <div class="flex justify-between border-b border-white/5 pb-0.5"><span class="text-gray-300">💻 设备 (Equip)</span><span id="e-equip" class="font-mono">0</span></div>
+                            <div class="flex justify-between"><span class="text-orange-300">💧 热水 (DHW)</span><span id="e-water" class="font-mono">0</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mini Dashboard: Realtime Environment -->
+        <div class="glass-panel p-3 rounded-lg pointer-events-auto">
+            <div class="flex justify-between items-center mb-3">
+                <span class="text-xs font-semibold text-gray-300">室外环境实时监测</span>
+                <span class="text-[10px] text-green-400 bg-green-900/30 px-1.5 rounded border border-green-800">Live</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-center mb-2">
+                <div class="bg-white/5 p-2 rounded border border-white/5 flex flex-col justify-center">
+                    <div class="text-[9px] text-gray-400">温度 (Temp)</div>
+                    <div class="text-sm font-bold text-white" id="env-temp">24°C</div>
+                </div>
+                <div class="bg-white/5 p-2 rounded border border-white/5 flex flex-col justify-center">
+                    <div class="text-[9px] text-gray-400">湿度 (RH)</div>
+                    <div class="text-sm font-bold text-blue-300" id="env-hum">45%</div>
+                </div>
+                <div class="bg-white/5 p-2 rounded border border-white/5 flex flex-col justify-center">
+                    <div class="text-[9px] text-gray-400">风速 (Wind)</div>
+                    <div class="text-sm font-bold text-green-300" id="env-wind">2.5 m/s</div>
+                </div>
+                <div class="bg-white/5 p-2 rounded border border-white/5 flex flex-col justify-center">
+                    <div class="text-[9px] text-gray-400">辐射 (Solar)</div>
+                    <div class="text-sm font-bold text-yellow-300" id="env-solar">500 W/m²</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Controls -->
+    <div class="absolute top-4 right-4 flex flex-col gap-2 z-10 pointer-events-auto">
+        <button onclick="setMode('normal')" class="glass-panel w-10 h-10 rounded-lg flex items-center justify-center hover:bg-white/10 transition group" title="真实视图">
+            <span class="text-lg group-hover:scale-110 transition">👁️</span>
+        </button>
+        <button onclick="setMode('zones')" class="glass-panel w-10 h-10 rounded-lg flex items-center justify-center hover:bg-white/10 transition group" title="功能线框">
+            <span class="text-lg text-blue-400 group-hover:scale-110 transition">🗺️</span>
+        </button>
+        <button onclick="setMode('personnel')" class="glass-panel w-10 h-10 rounded-lg flex items-center justify-center hover:bg-white/10 transition group" title="人员分布">
+            <span class="text-lg text-red-500 group-hover:scale-110 transition">👥</span>
+        </button>
+        <button onclick="setMode('environment')" class="glass-panel w-10 h-10 rounded-lg flex items-center justify-center hover:bg-white/10 transition group" title="热舒适度">
+            <span class="text-lg text-yellow-400 group-hover:scale-110 transition">🌡️</span>
+        </button>
+        <div class="h-px bg-white/20 my-1"></div>
+        <button onclick="explodeBuilding()" class="glass-panel w-10 h-10 rounded-lg flex items-center justify-center hover:bg-white/10 transition group" title="层级拆分">
+            <span class="text-lg group-hover:scale-110 transition">🏗️</span>
+        </button>
+        <button onclick="toggleUnderground()" class="glass-panel w-10 h-10 rounded-lg flex items-center justify-center hover:bg-white/10 transition group" title="地下车库">
+            <span class="text-lg group-hover:scale-110 transition">🅿️</span>
+        </button>
+    </div>
+
+    <!-- Zone Legend -->
+    <div id="zone-legend" class="absolute top-4 right-16 glass-panel p-3 rounded-lg hidden flex-col gap-1 text-[10px] pointer-events-none transition-opacity duration-300">
+        <div class="font-bold text-gray-300 mb-1">功能分区 (线框)</div>
+        <div class="flex items-center text-blue-300"><span class="legend-box border-blue-500"></span>办公区</div>
+        <div class="flex items-center text-green-300"><span class="legend-box border-green-500"></span>会议室</div>
+        <div class="flex items-center text-orange-300"><span class="legend-box border-orange-500"></span>茶水/休闲</div>
+        <div class="flex items-center text-purple-300"><span class="legend-box border-purple-500"></span>大厅/接待</div>
+    </div>
+
+    <!-- Bottom Time Control -->
+    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 w-96 glass-panel px-6 py-3 rounded-full flex items-center gap-4 z-10 pointer-events-auto shadow-2xl border border-blue-400/30">
+        <div class="text-center w-20">
+            <div id="time-display" class="text-sm font-mono font-bold text-white">12:00</div>
+            <div id="time-period" class="text-[9px] text-blue-300 tracking-widest uppercase">Afternoon</div>
+        </div>
+        <input type="range" min="0" max="24" step="0.1" value="12" id="time-slider" oninput="updateTime(this.value)">
+    </div>
+
+    <script>
+        // --- Core Config ---
+        const CONFIG = {
+            floors: 6, 
+            floorHeight: 4,
+            width: 34,
+            depth: 24,
+            coreSize: 6,
+            drawerDist: 30,
+            colors: {
+                bg: 0x0b1120,
+                glass: 0xaaddff,
+                wall: 0xf8fafc,
+                floor: 0xe2e8f0,
+                highlight: 0xfacc15,
+                core: 0x94a3b8,
+                person: 0xff0000, 
+                parkingLine: 0xffffff,
+                zoneWork: 0x3b82f6,
+                zoneMeet: 0x22c55e,
+                zoneRest: 0xf97316,
+                zoneLobby: 0xa855f7
+            }
+        };
+
+        let state = {
+            time: 12.0,
+            mode: 'normal',
+            isExploded: false,
+            activeDrawer: null,
+            selectedObj: null,
+            highlightMesh: null,
+            floorGroups: [],
+            zones: [],
+            people: [],
+            groundMesh: null,
+            gridHelper: null
+        };
+
+        // --- Three.js Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(CONFIG.colors.bg);
+        scene.fog = new THREE.FogExp2(CONFIG.colors.bg, 0.008);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(60, 50, 80);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.physicallyCorrectLights = true;
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.6;
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 - 0.02;
+
+        // --- Lighting ---
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+        scene.add(hemiLight);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 3.5);
+        dirLight.position.set(60, 120, 40);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.set(2048, 2048);
+        scene.add(dirLight);
+
+        // --- Materials ---
+        const matGlassTemplate = new THREE.MeshPhysicalMaterial({
+            color: CONFIG.colors.glass, metalness: 0.1, roughness: 0.0,
+            transparent: true, opacity: 0.2, transmission: 0.95, side: THREE.DoubleSide
+        });
+        const matFloorTemplate = new THREE.MeshStandardMaterial({ color: CONFIG.colors.floor, roughness: 0.4 });
+        const matWallTemplate = new THREE.MeshStandardMaterial({ color: CONFIG.colors.wall, roughness: 0.3 });
+        const matCoreTemplate = new THREE.MeshStandardMaterial({ color: CONFIG.colors.core, roughness: 0.7 });
+        
+        const matLine = new THREE.MeshBasicMaterial({ color: CONFIG.colors.parkingLine });
+        // UPDATED: Furniture is now Grey to avoid confusion with structure
+        const matFurniture = new THREE.MeshStandardMaterial({ color: 0x888888 });
+        const matFurnitureDark = new THREE.MeshStandardMaterial({ color: 0x444444 });
+
+        const matHighlight = new THREE.MeshBasicMaterial({ 
+            color: 0xffff00, wireframe: true, transparent: true, opacity: 0, depthTest: false
+        });
+
+        // --- Scene ---
+        state.gridHelper = new THREE.GridHelper(300, 60, 0x334155, 0x1e293b);
+        scene.add(state.gridHelper);
+        const planeGeo = new THREE.PlaneGeometry(500, 500);
+        const planeMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8, metalness: 0.4, transparent: true, opacity: 1 });
+        state.groundMesh = new THREE.Mesh(planeGeo, planeMat);
+        state.groundMesh.rotation.x = -Math.PI / 2;
+        state.groundMesh.position.y = -0.05;
+        state.groundMesh.receiveShadow = true;
+        scene.add(state.groundMesh);
+
+        function createCityContext() {
+            const cityGroup = new THREE.Group();
+            const blockGeo = new THREE.BoxGeometry(1, 1, 1);
+            const blockMat = new THREE.MeshLambertMaterial({ color: 0x334155 });
+            for(let i=0; i<30; i++) {
+                const h = 5 + Math.random() * 15; const w = 8 + Math.random() * 12; const d = 8 + Math.random() * 12;
+                const mesh = new THREE.Mesh(blockGeo, blockMat);
+                let x = (Math.random() - 0.5) * 250; let z = (Math.random() - 0.5) * 250;
+                if(Math.abs(x) < 40 && Math.abs(z) < 60) continue;
+                mesh.position.set(x, h/2, z); mesh.scale.set(w, h, d);
+                cityGroup.add(mesh);
+            }
+            scene.add(cityGroup);
+        }
+        createCityContext();
+
+        state.highlightMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), matHighlight);
+        state.highlightMesh.visible = false;
+        state.highlightMesh.renderOrder = 999;
+        scene.add(state.highlightMesh);
+
+        const buildingGroup = new THREE.Group();
+        scene.add(buildingGroup);
+
+        // --- Furniture ---
+        function createDesk(parent, x, z, rot) {
+            const grp = new THREE.Group();
+            grp.position.set(x, 0, z); grp.rotation.y = rot;
+            const desk = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.05, 0.8), matFurniture);
+            desk.position.y = 0.75; grp.add(desk);
+            const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.7, 0.7), matFurnitureDark);
+            const l1 = leg.clone(); l1.position.set(-0.7, 0.35, 0); grp.add(l1);
+            const l2 = leg.clone(); l2.position.set(0.7, 0.35, 0); grp.add(l2);
+            const chair = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), matFurnitureDark);
+            chair.position.set(0, 0.25, 0.6); grp.add(chair);
+            parent.add(grp);
+        }
+
+        function createMeetingTable(parent, x, z, w, d) {
+            const grp = new THREE.Group();
+            grp.position.set(x, 0, z);
+            const table = new THREE.Mesh(new THREE.BoxGeometry(w, 0.05, d), matFurniture);
+            table.position.y = 0.75; grp.add(table);
+            const base = new THREE.Mesh(new THREE.BoxGeometry(w*0.6, 0.75, d*0.4), matFurnitureDark);
+            base.position.y = 0.375; grp.add(base);
+            const tv = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.2, 2.5), new THREE.MeshStandardMaterial({color:0x111111}));
+            tv.position.set(-w/2 - 0.2, 1.8, 0); grp.add(tv);
+            parent.add(grp);
+        }
+
+        function createPantryBar(parent, x, z) {
+            const grp = new THREE.Group();
+            grp.position.set(x, 0, z);
+            const bar1 = new THREE.Mesh(new THREE.BoxGeometry(1, 1.1, 4), matFurniture);
+            bar1.position.set(0, 0.55, 0); grp.add(bar1);
+            const bar2 = new THREE.Mesh(new THREE.BoxGeometry(3, 1.1, 1), matFurniture);
+            bar2.position.set(1.5, 0.55, -1.5); grp.add(bar2);
+            parent.add(grp);
+        }
+
+        // --- Helper: Zones ---
+        function createRoom(w, d, x, z, name, type, parent) {
+            const roomGeo = new THREE.BoxGeometry(w - 0.2, 0.1, d - 0.2);
+            const roomMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.0 }); 
+            const room = new THREE.Mesh(roomGeo, roomMat);
+            room.position.set(x, 0.15, z);
+            
+            // Heat Block
+            const heatGeo = new THREE.BoxGeometry(w - 0.4, 2.5, d - 0.4);
+            const heatMat = new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0 });
+            const heatMesh = new THREE.Mesh(heatGeo, heatMat);
+            heatMesh.position.y = 1.25; 
+            room.add(heatMesh);
+
+            // Edge Wireframe
+            const boxGeo = new THREE.BoxGeometry(w - 0.4, 2.8, d - 0.4);
+            const edges = new THREE.EdgesGeometry(boxGeo);
+            const wireMat = new THREE.LineBasicMaterial({ color: 0xffffff, visible: false, transparent: true, opacity: 0.5 });
+            const wireMesh = new THREE.LineSegments(edges, wireMat);
+            wireMesh.position.y = 1.4;
+            room.add(wireMesh);
+
+            room.userData = {
+                type: 'zone', name: name, funcType: type,
+                parentFloor: parent,
+                heatMesh: heatMesh,
+                wireMesh: wireMesh,
+                baseTemp: 22 + Math.random()*2,
+                dims: { w, d, h: 3 }
+            };
+
+            parent.add(room);
+            state.zones.push(room);
+
+            if(type === 'work') {
+                const cols = Math.floor((w-2)/3);
+                const rows = Math.floor((d-2)/3);
+                for(let r=0; r<rows; r++) { for(let c=0; c<cols; c++) {
+                    createDesk(room, -w/2 + 2 + c*3, -d/2 + 2 + r*3, Math.PI);
+                }}
+            } else if (type === 'meet') {
+                createMeetingTable(room, 0, 0, w*0.6, d*0.5);
+            } else if (type === 'rest' || type === 'pantry') {
+                createPantryBar(room, 0, 0);
+            }
+
+            if (type !== 'parking') {
+                const area = w * d;
+                const capacity = Math.floor(area / 8); 
+                for(let i=0; i<capacity; i++) {
+                    const px = (Math.random() - 0.5) * (w - 2);
+                    const pz = (Math.random() - 0.5) * (d - 2);
+                    createPerson(room, px, pz);
+                }
+            }
+            return room;
+        }
+
+        // --- Helper: Person ---
+        function createPerson(parent, x, z) {
+            const grp = new THREE.Group();
+            grp.position.set(x, 0, z);
+            const matPerson = new THREE.MeshLambertMaterial({ color: CONFIG.colors.person, emissive: 0xff0000, emissiveIntensity: 0.6 });
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 1.6, 8), matPerson);
+            body.position.y = 0.8; grp.add(body);
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), matPerson);
+            head.position.y = 1.7; grp.add(head);
+            grp.userData = { isPerson: true, baseY: 0, offset: Math.random() * 10 };
+            grp.visible = false;
+            parent.add(grp);
+            state.people.push(grp);
+        }
+
+        function createCore(parent, height, mat) {
+            const core = new THREE.Mesh(new THREE.BoxGeometry(CONFIG.coreSize, height, CONFIG.coreSize), mat);
+            core.position.y = height / 2;
+            core.castShadow = true;
+            parent.add(core);
+        }
+
+        function createFloor(level) {
+            const group = new THREE.Group();
+            const y = level === -1 ? -CONFIG.floorHeight : level * CONFIG.floorHeight;
+            group.position.y = y;
+            group.userData = { level, name: level===-1?"B1 停车场": (level===0?"L1 大厅":`F${level} 办公层`) };
+
+            const myMatFloor = matFloorTemplate.clone();
+            const myMatWall = matWallTemplate.clone();
+            const myMatCore = matCoreTemplate.clone();
+            const myMatGlass = matGlassTemplate.clone();
+
+            const slab = new THREE.Mesh(new THREE.BoxGeometry(CONFIG.width, 0.3, CONFIG.depth), myMatFloor);
+            slab.receiveShadow = true;
+            group.add(slab);
+            createCore(group, CONFIG.floorHeight, myMatCore);
+
+            if (level === -1) {
+                // Basement
+                for(let cx=-14; cx<=14; cx+=8) for(let cz=-10; cz<=10; cz+=8) {
+                    if(Math.abs(cx)<4 && Math.abs(cz)<4) continue;
+                    const col = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3.5, 0.8), myMatCore);
+                    col.position.set(cx, 1.75, cz); group.add(col);
+                }
+                createRoom(12, 20, -10, 0, "西区车位", 'parking', group);
+                createRoom(12, 20, 10, 0, "东区车位", 'parking', group);
+                const carGeo = new THREE.BoxGeometry(2.2, 1.2, 4.5);
+                for (let r = 0; r < 2; r++) {
+                    const lineX = r === 0 ? -13 : -7;
+                    for (let i = 0; i < 4; i++) {
+                        const lineZ = -8 + i * 5; 
+                        const l1 = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 4.8), matLine); l1.rotation.x=-Math.PI/2; l1.position.set(lineX-1.25, 0.16, lineZ); group.add(l1);
+                        const l2 = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 4.8), matLine); l2.rotation.x=-Math.PI/2; l2.position.set(lineX+1.25, 0.16, lineZ); group.add(l2);
+                        const l3 = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.1), matLine); l3.rotation.x=-Math.PI/2; l3.position.set(lineX, 0.16, lineZ-2.4); group.add(l3);
+                        if (Math.random() > 0.3) {
+                            const car = new THREE.Mesh(carGeo, new THREE.MeshStandardMaterial({color: Math.random()*0xffffff}));
+                            car.position.set(lineX, 0.8, lineZ);
+                            car.rotation.y = (r===0 ? Math.PI/2 : -Math.PI/2); group.add(car);
+                        }
+                    }
+                }
+                for (let r = 0; r < 2; r++) {
+                    const lineX = r === 0 ? 7 : 13;
+                    for (let i = 0; i < 4; i++) {
+                        const lineZ = -8 + i * 5; 
+                        const l1 = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 4.8), matLine); l1.rotation.x=-Math.PI/2; l1.position.set(lineX-1.25, 0.16, lineZ); group.add(l1);
+                        const l2 = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 4.8), matLine); l2.rotation.x=-Math.PI/2; l2.position.set(lineX+1.25, 0.16, lineZ); group.add(l2);
+                        const l3 = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.1), matLine); l3.rotation.x=-Math.PI/2; l3.position.set(lineX, 0.16, lineZ-2.4); group.add(l3);
+                        if (Math.random() > 0.3) {
+                            const car = new THREE.Mesh(carGeo, new THREE.MeshStandardMaterial({color: Math.random()*0xffffff}));
+                            car.position.set(lineX, 0.8, lineZ);
+                            car.rotation.y = (r===0 ? Math.PI/2 : -Math.PI/2); group.add(car);
+                        }
+                    }
+                }
+            } else if (level === 0) {
+                // Lobby
+                const barGeo = new THREE.CylinderGeometry(4, 4, 1.1, 32, 1, true);
+                const barMat = new THREE.MeshStandardMaterial({ color: 0xcd853f, side: THREE.DoubleSide });
+                const bar = new THREE.Mesh(barGeo, barMat);
+                bar.position.set(0, 0.55, 6); group.add(bar);
+                
+                // FIXED: Resized pantry area to prevent overflow (-9, -6 with depth 20 was overflowing)
+                // New: Depth 10, pos z=-5
+                createRoom(14, 10, -8, 6, "前台接待区", 'work', group);
+                createRoom(14, 20, 9, 0, "访客休息区", 'rest', group);
+                createRoom(14, 10, -9, -5, "展览展示区", 'pantry', group); 
+
+            } else {
+                const wallThick = 0.2; const wallH = 3;
+                const w1 = new THREE.Mesh(new THREE.BoxGeometry(wallThick, wallH, 10), myMatWall); w1.position.set(0, wallH/2, -8); group.add(w1);
+                const w2 = new THREE.Mesh(new THREE.BoxGeometry(12, wallH, wallThick), myMatWall); w2.position.set(-10, wallH/2, 0); group.add(w2);
+                const w3 = new THREE.Mesh(new THREE.BoxGeometry(12, wallH, wallThick), myMatWall); w3.position.set(10, wallH/2, 0); group.add(w3);
+                createRoom(13, 9, -9, -6, "市场部", 'work', group);
+                createRoom(13, 9, -9, 6, "会议室 A", 'meet', group);
+                createRoom(13, 9, 9, -6, "开发部", 'work', group);
+                createRoom(13, 9, 9, 6, "茶水间", 'pantry', group);
+            }
+
+            if(level !== -1) {
+                const glass = new THREE.Mesh(new THREE.BoxGeometry(CONFIG.width, CONFIG.floorHeight - 0.2, CONFIG.depth), myMatGlass);
+                glass.position.y = CONFIG.floorHeight/2;
+                group.add(glass);
+                const iLight = new THREE.PointLight(0xffffff, 0.4, 20); 
+                iLight.position.set(0, 3, 0); group.add(iLight);
+            }
+            state.floorGroups.push(group);
+            buildingGroup.add(group);
+        }
+
+        for(let i=-1; i<CONFIG.floors; i++) createFloor(i);
+        
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(CONFIG.width, 0.5, CONFIG.depth), matFloorTemplate.clone());
+        roof.position.y = CONFIG.floors * CONFIG.floorHeight;
+        roof.userData = { level: 99, name: "屋顶花园" };
+        createCore(roof, 1.5, matCoreTemplate.clone());
+        state.floorGroups.push(roof);
+        buildingGroup.add(roof);
+
+        // --- Interaction ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth/window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        renderer.domElement.addEventListener('click', (e) => {
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            const zInt = raycaster.intersectObjects(state.zones, true);
+            let roomHit = null;
+            for(let hit of zInt) {
+                 let target = hit.object;
+                 while(target.parent && !target.userData.type) target = target.parent;
+                 if(target.userData.type === 'zone') { roomHit = target; break; }
+            }
+
+            if(roomHit) {
+                selectZone(roomHit);
+                const floor = roomHit.userData.parentFloor;
+                if(state.activeDrawer !== floor && !state.isExploded) toggleDrawer(floor);
+                return;
+            }
+
+            const bInt = raycaster.intersectObjects(buildingGroup.children, true);
+            if(bInt.length > 0) {
+                let target = bInt[0].object;
+                while(target.parent && target.parent !== buildingGroup) target = target.parent;
+                if(target.userData.level !== undefined && !state.isExploded) {
+                    toggleDrawer(target);
+                    if(state.highlightMesh.visible) resetSelection(); 
+                }
+                return;
+            }
+            resetSelection();
+        });
+
+        function selectZone(zone) {
+            state.selectedObj = zone;
+            const data = zone.userData;
+            document.getElementById('default-hint').classList.add('hidden');
+            document.getElementById('selection-details').classList.remove('hidden');
+            document.getElementById('sel-title').innerText = `${data.parentFloor.userData.name.split(' ')[0]} ${data.name}`;
+            document.getElementById('sel-func').innerText = data.funcType === 'work' ? "办公/会议" : (data.funcType === 'meet' ? "会议室" : "休息/接待");
+            const worldPos = new THREE.Vector3();
+            zone.getWorldPosition(worldPos);
+            state.highlightMesh.position.copy(worldPos);
+            state.highlightMesh.position.y += 1.5; 
+            state.highlightMesh.scale.set(data.dims.w, data.dims.h, data.dims.d);
+            state.highlightMesh.material.opacity = 1;
+            state.highlightMesh.visible = true;
+            updateDataDisplay();
+        }
+
+        function resetSelection() {
+            state.selectedObj = null;
+            state.highlightMesh.visible = false;
+            document.getElementById('default-hint').classList.remove('hidden');
+            document.getElementById('selection-details').classList.add('hidden');
+        }
+
+        function updateDataDisplay() {
+            if(!state.selectedObj) return;
+            const data = state.selectedObj.userData;
+            const hour = state.time;
+            
+            let pplCount = 0;
+            state.people.forEach(p => {
+                let pParent = p.parent;
+                while(pParent && pParent !== state.selectedObj && pParent.parent) pParent = pParent.parent;
+                if(pParent === state.selectedObj && p.visible) pplCount++;
+            });
+
+            document.getElementById('sel-ppl').innerText = pplCount + " 人";
+            const tempOffset = (hour > 12 && hour < 16) ? 2 : 0;
+            const currentTemp = (data.baseTemp + tempOffset).toFixed(1);
+            document.getElementById('sel-temp').innerText = currentTemp + "°C";
+            
+            // ENERGY LOGIC: Parking vs Office
+            let eCool = "0.0", eHeat = "0.0", eLight = "0.0", eEquip = "0.0", eWater = "0.0";
+            let totalE = 0.0;
+
+            if (data.funcType === 'parking') {
+                // Low energy for parking
+                const baseLoad = 5.0; // kW base
+                eLight = (hour > 18 || hour < 6) ? "8.0" : "2.0"; // Lights on at night
+                eEquip = "3.0"; // Ventilation etc.
+                totalE = (parseFloat(eLight) + parseFloat(eEquip)).toFixed(1);
+            } else {
+                // Normal building logic
+                const baseTotal = (pplCount * 1.5 + 20);
+                totalE = baseTotal.toFixed(1);
+                
+                eCool = (hour > 10 && hour < 18) ? (baseTotal * 0.4).toFixed(1) : (baseTotal * 0.1).toFixed(1);
+                eHeat = (hour > 10 && hour < 18) ? "0.0" : (baseTotal * 0.3).toFixed(1);
+                eLight = (hour > 7 && hour < 19) ? (baseTotal * 0.2).toFixed(1) : (baseTotal * 0.5).toFixed(1);
+                eEquip = (baseTotal * 0.25).toFixed(1);
+                eWater = (baseTotal * 0.05).toFixed(1);
+            }
+
+            document.getElementById('sel-energy-total').innerText = totalE;
+            document.getElementById('e-cool').innerText = eCool;
+            document.getElementById('e-heat').innerText = eHeat;
+            document.getElementById('e-light').innerText = eLight;
+            document.getElementById('e-equip').innerText = eEquip;
+            document.getElementById('e-water').innerText = eWater;
+            
+            let comfort = "优";
+            if(currentTemp > 26) comfort = "偏热";
+            if(currentTemp < 20) comfort = "偏冷";
+            document.getElementById('sel-pmv').innerText = comfort;
+        }
+
+        window.toggleDrawer = function(targetFloor) {
+            const floor = targetFloor || (state.selectedObj ? state.selectedObj.userData.parentFloor : null);
+            if(!floor) return;
+            const isBasement = floor.userData.level === -1;
+            
+            if(state.activeDrawer !== floor) {
+                if(state.activeDrawer) {
+                    new TWEEN.Tween(state.activeDrawer.position).to({ z: 0 }, 400).start();
+                }
+                new TWEEN.Tween(floor.position).to({ z: CONFIG.drawerDist }, 600).easing(TWEEN.Easing.Back.Out).start();
+                state.activeDrawer = floor;
+                setOthersDimmed(floor, true);
+                if(isBasement) setGroundOpacity(0.1);
+            } else {
+                new TWEEN.Tween(floor.position).to({ z: 0 }, 500).easing(TWEEN.Easing.Cubic.Out).start();
+                state.activeDrawer = null;
+                setOthersDimmed(null, false);
+                if(isBasement) setGroundOpacity(1);
+            }
+        };
+
+        function setOthersDimmed(activeFloor, isDimmed) {
+            state.floorGroups.forEach(g => {
+                const isTarget = (g === activeFloor);
+                const wallOp = isTarget || !isDimmed ? 1 : 0.1;
+                const glassOp = isTarget || !isDimmed ? 0.2 : 0.05;
+                const transp = !isTarget && isDimmed;
+
+                g.traverse(child => {
+                    if(child.material) {
+                        if(child.material.transparent && child.material.transmission) {
+                            child.material.opacity = glassOp;
+                        } else {
+                            child.material.transparent = transp;
+                            child.material.opacity = wallOp;
+                        }
+                    }
+                });
+            });
+        }
+        
+        window.toggleUnderground = function() {
+            const basement = state.floorGroups.find(g => g.userData.level === -1);
+            if(basement) toggleDrawer(basement);
+        };
+
+        function setGroundOpacity(val) {
+            new TWEEN.Tween(state.groundMesh.material).to({ opacity: val }, 500).start();
+            state.gridHelper.visible = (val > 0.5);
+        }
+
+        window.explodeBuilding = function() {
+            state.isExploded = !state.isExploded;
+            if(state.activeDrawer) toggleDrawer(state.activeDrawer);
+            state.floorGroups.forEach(g => {
+                const lvl = g.userData.level;
+                let ty = 0;
+                if(state.isExploded) {
+                    if(lvl === -1) ty = -20;
+                    else if(lvl === 99) ty = CONFIG.floors * CONFIG.floorHeight * 2.2;
+                    else ty = lvl * CONFIG.floorHeight * 2.2;
+                } else {
+                    ty = (lvl === -1) ? -CONFIG.floorHeight : lvl * CONFIG.floorHeight;
+                    if(lvl===99) ty = CONFIG.floors * CONFIG.floorHeight;
+                }
+                new TWEEN.Tween(g.position).to({ y: ty }, 1000).easing(TWEEN.Easing.Elastic.Out).start();
+            });
+        };
+
+        window.setMode = function(mode) {
+            state.mode = mode;
+            const legend = document.getElementById('zone-legend');
+            if(mode === 'zones') legend.classList.remove('hidden'); else legend.classList.add('hidden');
+
+            state.zones.forEach(z => {
+                z.userData.heatMesh.visible = (mode === 'environment'); // Use visible
+                z.userData.heatMesh.material.opacity = (mode === 'environment') ? 0.4 : 0; // Keep opacity for fade
+                
+                const wMat = z.userData.wireMesh.material;
+                if (mode === 'zones') {
+                    z.userData.wireMesh.visible = true;
+                    let c = CONFIG.colors.zoneWork;
+                    if(z.userData.funcType === 'meet') c = CONFIG.colors.zoneMeet;
+                    if(z.userData.funcType === 'rest' || z.userData.funcType === 'pantry') c = CONFIG.colors.zoneRest;
+                    if(z.userData.parentFloor.userData.level === 0 && z.userData.funcType !== 'work') c = CONFIG.colors.zoneLobby;
+                    wMat.color.setHex(c);
+                } else {
+                    z.userData.wireMesh.visible = false;
+                }
+            });
+
+            state.floorGroups.forEach(g => {
+                g.traverse(c => {
+                    if(c.material && c.material.transmission) {
+                         c.material.opacity = (mode === 'environment' || mode === 'personnel' || mode === 'zones') ? 0.05 : 0.2;
+                    }
+                });
+            });
+            updateTime(state.time);
+        };
+
+        window.updateTime = function(v) {
+            state.time = parseFloat(v);
+            const hour = Math.floor(state.time);
+            const min = Math.floor((state.time%1)*60);
+            document.getElementById('time-display').innerText = `${hour.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
+            let label = "Working Hours";
+            if(hour < 9 || hour > 18) label = "Off Hours";
+            if(hour >= 12 && hour < 14) label = "Lunch Break";
+            document.getElementById('time-period').innerText = label;
+
+            // Simulated Environment Data
+            const envTemp = Math.floor(18 + 8 * Math.sin((hour-4)/24 * Math.PI * 2));
+            const envHum = Math.floor(60 - 20 * Math.sin((hour-6)/24 * Math.PI * 2));
+            const envWind = (2 + Math.sin(hour)*1).toFixed(1);
+            let envSolar = 0;
+            if(hour > 6 && hour < 19) {
+                envSolar = Math.floor(800 * Math.sin((hour-6)/13 * Math.PI));
+            }
+            
+            document.getElementById('env-temp').innerText = envTemp + "°C";
+            document.getElementById('env-hum').innerText = envHum + "%";
+            document.getElementById('env-wind').innerText = envWind + " m/s";
+            document.getElementById('env-solar').innerText = envSolar + " W/m²";
+
+            const isNight = hour < 6 || hour > 18;
+            const t = (state.time - 6) / 12; const ang = t * Math.PI;
+            if(isNight) {
+                dirLight.intensity = 0.5; hemiLight.intensity = 0.3;
+                dirLight.position.set(0, 100, 0); 
+                state.floorGroups.forEach(g => g.traverse(c => {
+                    if(c.material && c.material.transmission) c.material.emissiveIntensity = 0.2;
+                }));
+            } else {
+                dirLight.intensity = 3.5; hemiLight.intensity = 0.8;
+                dirLight.position.set(Math.cos(ang)*80, Math.sin(ang)*80, 40); 
+                state.floorGroups.forEach(g => g.traverse(c => {
+                    if(c.material && c.material.transmission) c.material.emissiveIntensity = 0;
+                }));
+            }
+
+            state.people.forEach(grp => {
+                let pParent = grp.parent; 
+                while(pParent && !pParent.userData.funcType) pParent = pParent.parent;
+                let type = pParent ? pParent.userData.funcType : 'work';
+                
+                let chance = 0;
+                if (hour >= 9 && hour < 12) {
+                    if(type === 'work' || type === 'meet') chance = 0.8; else chance = 0.1;
+                } else if (hour >= 12 && hour < 14) {
+                    if(type === 'work') chance = 0.2; else chance = 0.8;
+                } else if (hour >= 14 && hour < 18) {
+                    if(type === 'work' || type === 'meet') chance = 0.8; else chance = 0.2;
+                } else {
+                    if(type === 'work') chance = 0.05; else chance = 0.0;
+                }
+                if (!grp.userData.threshold) grp.userData.threshold = Math.random();
+                grp.visible = (state.mode === 'personnel') && (grp.userData.threshold < chance);
+            });
+
+            if(state.selectedObj) updateDataDisplay();
+        };
+
+        const chartCanvas = document.getElementById('monitorChart');
+        if (chartCanvas) {
+            const ctx = chartCanvas.getContext('2d');
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['0', '6', '12', '18', '24'],
+                    datasets: [{
+                        data: [18, 20, 26, 24, 19],
+                        borderColor: '#38bdf8', borderWidth: 2, pointRadius: 0, tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { display: false }, y: { display: false } }
+                }
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            TWEEN.update();
+            controls.update();
+
+            if(state.mode === 'personnel') {
+                const now = Date.now() * 0.001;
+                state.people.forEach(p => {
+                    if(p.visible) {
+                        p.position.y = p.userData.baseY + Math.abs(Math.sin(now * 3 + p.userData.offset)) * 0.05;
+                    }
+                });
+            }
+
+            if(state.highlightMesh.visible) {
+                state.highlightMesh.material.opacity = 0.5 + Math.sin(Date.now()*0.01)*0.3;
+            }
+
+            if(state.mode === 'environment') {
+                state.zones.forEach(z => {
+                    let temp = z.userData.baseTemp;
+                    if(state.time > 12 && state.time < 16) temp += 3;
+                    let tNorm = (temp - 20) / 8;
+                    tNorm = Math.max(0, Math.min(1, tNorm));
+                    const hue = 0.6 * (1 - tNorm);
+                    z.userData.heatMesh.material.color.setHSL(hue, 1, 0.5);
+                });
+            }
+            renderer.render(scene, camera);
+        }
+        
+        TWEEN.removeAll();
+        updateTime(12);
+        animate();
+
+    </script>
+</body>
+</html>
